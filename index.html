@@ -157,6 +157,13 @@
                   yAxisID: "y1",
                   tension: 0.3,
                 },
+                {
+                  label: "Abs. Feuchte (g/m³)",
+                  data: temps.map((t, i) => absFeuchte(t, hums[i])),
+                  borderColor: "green",
+                  yAxisID: "y2",
+                  tension: 0.3,
+                },
               ],
             },
             options: {
@@ -181,6 +188,14 @@
                   position: "right",
                   title: { display: true, text: "rel. Feuchte (%)" },
                   grid: { drawOnChartArea: false },
+                },
+                y2: {
+                  type: "linear",
+                  position: "right",
+                  title: { display: true, text: "Abs. Feuchte (g/m³)" },
+                  grid: { drawOnChartArea: false },
+                  ticks: { color: "green" },
+                  offset: true,
                 },
               },
             },
