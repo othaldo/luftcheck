@@ -13,7 +13,8 @@
         background: #f5f5f5;
       }
       input,
-      button {
+      button,
+      select {
         padding: 0.5em;
         margin: 0.5em 0;
         width: 100%;
@@ -40,6 +41,15 @@
   <body>
     <h1>Luftcheck</h1>
 
+    <p><strong>Standort wählen:</strong></p>
+    <input
+      type="text"
+      id="location_input"
+      placeholder="Ort eingeben oder GPS verwenden"
+    />
+    <button onclick="useLocation()">Standort ermitteln (GPS)</button>
+    <button onclick="resolveLocation()">Standort setzen</button>
+
     <div class="current-values" id="weather-now"></div>
 
     <p>
@@ -60,12 +70,20 @@
       }
 
       let forecastChart;
+      let latitude = null;
+      let longitude = null;
 
       async function fetchWeatherAndShow() {
+        if (latitude === null || longitude === null) {
+          document.getElementById("weather-now").textContent =
+            "Bitte Standort angeben.";
+          return;
+        }
+
         const weatherNow = document.getElementById("weather-now");
         try {
           const res = await fetch(
-            "https://api.open-meteo.com/v1/forecast?latitude=54.30&longitude=9.50&hourly=temperature_2m,relative_humidity_2m&timezone=auto"
+            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relative_humidity_2m&timezone=auto`
           );
           const data = await res.json();
 
@@ -78,7 +96,8 @@
             (h) => h.getHours().toString().padStart(2, "0") + ":00"
           );
           const currentHourIndex = hours.findIndex(
-            (h) => h.getHours() === now.getHours()
+            (h) =>
+              h.getHours() === now.getHours() && h.getDate() === now.getDate()
           );
 
           const tempOut = temps[currentHourIndex];
@@ -112,8 +131,7 @@
               hour: "2-digit",
               minute: "2-digit",
             });
-            weatherNow.textContent += `
-Nächste gute Lüftungszeit: ${timeString}`;
+            weatherNow.textContent += `\nNächste gute Lüftungszeit: ${timeString}`;
           } else {
             weatherNow.textContent += `\nHeute voraussichtlich kein optimaler Lüftungszeitpunkt.`;
           }
@@ -186,7 +204,7 @@ Nächste gute Lüftungszeit: ${timeString}`;
 
         try {
           const res = await fetch(
-            "https://api.open-meteo.com/v1/forecast?latitude=54.30&longitude=9.50&hourly=temperature_2m,relative_humidity_2m&timezone=auto"
+            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relative_humidity_2m&timezone=auto`
           );
           const data = await res.json();
           const now = new Date();
@@ -195,7 +213,8 @@ Nächste gute Lüftungszeit: ${timeString}`;
           const hums = data.hourly.relative_humidity_2m;
 
           const currentHourIndex = hours.findIndex(
-            (h) => h.getHours() === now.getHours()
+            (h) =>
+              h.getHours() === now.getHours() && h.getDate() === now.getDate()
           );
           const tempOut = temps[currentHourIndex];
           const rhOut = hums[currentHourIndex];
@@ -218,7 +237,44 @@ Nächste gute Lüftungszeit: ${timeString}`;
         }
       }
 
-      fetchWeatherAndShow();
+      function useLocation() {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            latitude = pos.coords.latitude;
+            longitude = pos.coords.longitude;
+            fetchWeatherAndShow();
+          },
+          () => {
+            document.getElementById("weather-now").textContent =
+              "GPS-Zugriff abgelehnt oder fehlgeschlagen.";
+          }
+        );
+      }
+
+      async function resolveLocation() {
+        const query = document.getElementById("location_input").value.trim();
+        if (!query) return;
+
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+              query
+            )}&format=json&limit=1`
+          );
+          const results = await res.json();
+          if (results.length > 0) {
+            latitude = parseFloat(results[0].lat);
+            longitude = parseFloat(results[0].lon);
+            fetchWeatherAndShow();
+          } else {
+            document.getElementById("weather-now").textContent =
+              "Ort nicht gefunden.";
+          }
+        } catch {
+          document.getElementById("weather-now").textContent =
+            "Fehler bei der Ortssuche.";
+        }
+      }
     </script>
   </body>
 </html>
