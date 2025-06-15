@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Luftcheck: Jetzt lüften?</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 800px;
+        margin: auto;
+        padding: 2em;
+        background: #f5f5f5;
+      }
+      input,
+      button {
+        padding: 0.5em;
+        margin: 0.5em 0;
+        width: 100%;
+      }
+      .result {
+        margin-top: 1em;
+        padding: 1em;
+        background: white;
+        border-radius: 5px;
+        white-space: pre-line;
+      }
+      .current-values {
+        font-size: 0.9em;
+        color: #555;
+        margin-bottom: 1em;
+      }
+      canvas {
+        background: white;
+        border-radius: 5px;
+        margin-top: 2em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Luftcheck</h1>
+
+    <div class="current-values" id="weather-now"></div>
+
+    <p>
+      Gib deine <strong>Raumtemperatur</strong> und
+      <strong>relative Luftfeuchtigkeit</strong> ein:
+    </p>
+    <input type="number" id="temp_in" placeholder="Raumtemperatur (in °C)" />
+    <input type="number" id="rh_in" placeholder="Raumfeuchtigkeit (in %)" />
+    <button onclick="checkLueften()">Checken</button>
+
+    <div class="result" id="output"></div>
+    <canvas id="forecastChart" width="700" height="300"></canvas>
+
+    <script>
+      function absFeuchte(temp, rh) {
+        const svp = 6.112 * Math.exp((17.62 * temp) / (243.12 + temp));
+        return (216.7 * (rh / 100) * svp) / (temp + 273.15);
+      }
+
+      let forecastChart;
+
+      async function fetchWeatherAndShow() {
+        const weatherNow = document.getElementById("weather-now");
+        try {
+          const res = await fetch(
+            "https://api.open-meteo.com/v1/forecast?latitude=54.30&longitude=9.50&hourly=temperature_2m,relative_humidity_2m&timezone=auto"
+          );
+          const data = await res.json();
+
+          const now = new Date();
+          const hours = data.hourly.time.map((t) => new Date(t));
+          const temps = data.hourly.temperature_2m;
+          const hums = data.hourly.relative_humidity_2m;
+
+          const labels = hours.map(
+            (h) => h.getHours().toString().padStart(2, "0") + ":00"
+          );
+          const currentHourIndex = hours.findIndex(
+            (h) => h.getHours() === now.getHours()
+          );
+
+          const tempOut = temps[currentHourIndex];
+          const rhOut = hums[currentHourIndex];
+          const ahOut = absFeuchte(tempOut, rhOut);
+
+          weatherNow.textContent = `Aktuell draußen: ${tempOut} °C, ${rhOut}% rF → ${ahOut.toFixed(
+            1
+          )} g/m³`;
+
+          const tempIn = parseFloat(document.getElementById("temp_in").value);
+          const rhIn = parseFloat(document.getElementById("rh_in").value);
+
+          let ahIn = 12.5;
+          if (!isNaN(tempIn) && !isNaN(rhIn)) {
+            ahIn = absFeuchte(tempIn, rhIn);
+          }
+
+          const goodHours = [];
+          for (let i = currentHourIndex; i < temps.length; i++) {
+            const ah = absFeuchte(temps[i], hums[i]);
+            if (ah < ahIn - 1) {
+              goodHours.push(i);
+            }
+          }
+
+          if (goodHours.length > 0) {
+            const first = hours[goodHours[0]];
+            const timeString = first.toLocaleString("de-DE", {
+              weekday: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            weatherNow.textContent += `
+Nächste gute Lüftungszeit: ${timeString}`;
+          } else {
+            weatherNow.textContent += `\nHeute voraussichtlich kein optimaler Lüftungszeitpunkt.`;
+          }
+
+          if (forecastChart) forecastChart.destroy();
+          const ctx = document.getElementById("forecastChart").getContext("2d");
+          forecastChart = new Chart(ctx, {
+            type: "line",
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: "Temperatur (°C)",
+                  data: temps,
+                  borderColor: "orange",
+                  yAxisID: "y",
+                  tension: 0.3,
+                },
+                {
+                  label: "rel. Feuchte (%)",
+                  data: hums,
+                  borderColor: "blue",
+                  yAxisID: "y1",
+                  tension: 0.3,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              interaction: {
+                mode: "index",
+                intersect: false,
+              },
+              stacked: false,
+              plugins: {
+                legend: { position: "top" },
+                title: { display: true, text: "Außenprognose (stündlich)" },
+              },
+              scales: {
+                y: {
+                  type: "linear",
+                  position: "left",
+                  title: { display: true, text: "Temperatur (°C)" },
+                },
+                y1: {
+                  type: "linear",
+                  position: "right",
+                  title: { display: true, text: "rel. Feuchte (%)" },
+                  grid: { drawOnChartArea: false },
+                },
+              },
+            },
+          });
+        } catch (e) {
+          weatherNow.textContent = "Fehler beim Abrufen der Wetterdaten.";
+        }
+      }
+
+      async function checkLueften() {
+        const tempIn = parseFloat(document.getElementById("temp_in").value);
+        const rhIn = parseFloat(document.getElementById("rh_in").value);
+        const output = document.getElementById("output");
+
+        if (isNaN(tempIn) || isNaN(rhIn)) {
+          output.textContent = "Bitte beide Werte korrekt eingeben.";
+          return;
+        }
+
+        const ahIn = absFeuchte(tempIn, rhIn);
+
+        try {
+          const res = await fetch(
+            "https://api.open-meteo.com/v1/forecast?latitude=54.30&longitude=9.50&hourly=temperature_2m,relative_humidity_2m&timezone=auto"
+          );
+          const data = await res.json();
+          const now = new Date();
+          const hours = data.hourly.time.map((t) => new Date(t));
+          const temps = data.hourly.temperature_2m;
+          const hums = data.hourly.relative_humidity_2m;
+
+          const currentHourIndex = hours.findIndex(
+            (h) => h.getHours() === now.getHours()
+          );
+          const tempOut = temps[currentHourIndex];
+          const rhOut = hums[currentHourIndex];
+          const ahOut = absFeuchte(tempOut, rhOut);
+
+          let message = `Innen: ${ahIn.toFixed(1)} g/m³\nAußen: ${ahOut.toFixed(
+            1
+          )} g/m³`;
+
+          if (ahOut < ahIn - 1) {
+            message += "\n\n✅ Jetzt ist ein guter Zeitpunkt zum Lüften!";
+          } else {
+            message += "\n\n❌ Lieber Fenster geschlossen lassen.";
+          }
+
+          output.textContent = message;
+          fetchWeatherAndShow();
+        } catch (e) {
+          output.textContent = "Fehler beim Abrufen der Wetterdaten.";
+        }
+      }
+
+      fetchWeatherAndShow();
+    </script>
+  </body>
+</html>
