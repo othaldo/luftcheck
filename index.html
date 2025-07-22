@@ -92,6 +92,15 @@
           const temps = data.hourly.temperature_2m;
           const hums = data.hourly.relative_humidity_2m;
 
+          // Finde Index der aktuellen Stunde
+          const currentHourIndex = hours.findIndex(
+            (h) =>
+              h.getHours() === now.getHours() &&
+              h.getDate() === now.getDate() &&
+              h.getMonth() === now.getMonth() &&
+              h.getFullYear() === now.getFullYear()
+          );
+
           // Schneide Daten ab aktuelle Stunde
           const hoursSlice = hours.slice(currentHourIndex);
           const tempsSlice = temps.slice(currentHourIndex);
@@ -104,19 +113,11 @@
                 day: "2-digit",
                 month: "2-digit",
               }) +
-              ". " +
+              " " +
               h.toLocaleTimeString("de-DE", {
                 hour: "2-digit",
                 minute: "2-digit",
               })
-          );
-          // Finde Index der aktuellen Stunde
-          const currentHourIndex = hours.findIndex(
-            (h) =>
-              h.getHours() === now.getHours() &&
-              h.getDate() === now.getDate() &&
-              h.getMonth() === now.getMonth() &&
-              h.getFullYear() === now.getFullYear()
           );
 
           const tempOut = temps[currentHourIndex];
@@ -145,11 +146,16 @@
 
           if (goodHours.length > 0) {
             const first = hours[goodHours[0]];
-            const timeString = first.toLocaleString("de-DE", {
-              weekday: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
+            const timeString =
+              first.toLocaleDateString("de-DE", {
+                day: "2-digit",
+                month: "2-digit",
+              }) +
+              " " +
+              first.toLocaleTimeString("de-DE", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
             weatherNow.textContent += `\nNächste gute Lüftungszeit: ${timeString}`;
           } else {
             weatherNow.textContent += `\nHeute voraussichtlich kein optimaler Lüftungszeitpunkt.`;
