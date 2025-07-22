@@ -92,12 +92,31 @@
           const temps = data.hourly.temperature_2m;
           const hums = data.hourly.relative_humidity_2m;
 
-          const labels = hours.map(
-            (h) => h.getHours().toString().padStart(2, "0") + ":00"
+          // Schneide Daten ab aktuelle Stunde
+          const hoursSlice = hours.slice(currentHourIndex);
+          const tempsSlice = temps.slice(currentHourIndex);
+          const humsSlice = hums.slice(currentHourIndex);
+
+          // Labels mit Datum und Uhrzeit, z.B. 22.07. 18:00
+          const labels = hoursSlice.map(
+            (h) =>
+              h.toLocaleDateString("de-DE", {
+                day: "2-digit",
+                month: "2-digit",
+              }) +
+              ". " +
+              h.toLocaleTimeString("de-DE", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
           );
+          // Finde Index der aktuellen Stunde
           const currentHourIndex = hours.findIndex(
             (h) =>
-              h.getHours() === now.getHours() && h.getDate() === now.getDate()
+              h.getHours() === now.getHours() &&
+              h.getDate() === now.getDate() &&
+              h.getMonth() === now.getMonth() &&
+              h.getFullYear() === now.getFullYear()
           );
 
           const tempOut = temps[currentHourIndex];
@@ -145,21 +164,21 @@
               datasets: [
                 {
                   label: "Temperatur (°C)",
-                  data: temps,
+                  data: tempsSlice,
                   borderColor: "orange",
                   yAxisID: "y",
                   tension: 0.3,
                 },
                 {
                   label: "rel. Feuchte (%)",
-                  data: hums,
+                  data: humsSlice,
                   borderColor: "blue",
                   yAxisID: "y1",
                   tension: 0.3,
                 },
                 {
                   label: "Abs. Feuchte (g/m³)",
-                  data: temps.map((t, i) => absFeuchte(t, hums[i])),
+                  data: tempsSlice.map((t, i) => absFeuchte(t, humsSlice[i])),
                   borderColor: "green",
                   yAxisID: "y2",
                   tension: 0.3,
