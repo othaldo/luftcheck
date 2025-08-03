@@ -1,4 +1,4 @@
-// app.js — JavaScript‑Logik für „Luftcheck“
+// app.js — JavaScript-Logik für „Luftcheck“ (mobile-optimierte Chart-Darstellung)
 // ------------------------------------------------------------
 // 1. Hilfsfunktion: absolute Feuchte berechnen (g/m³)
 function absFeuchte(tempC, rhPercent) {
@@ -6,20 +6,33 @@ function absFeuchte(tempC, rhPercent) {
   return (216.7 * (rhPercent / 100) * svp) / (tempC + 273.15);
 }
 
+// ------------------------------------------------------------
 // 2. Globale Zustände
 let latitude = null;
 let longitude = null;
 let forecastChart = null;
-let lastHourly = null; // Cache für stündliche Weather‑API‑Daten
+let lastHourly = null; // Cache für stündliche Weather-API-Daten
 
 // ------------------------------------------------------------
-// 3. API – Open‑Meteo (stündlich Temperatur & rel. Feuchte)
+// 3. Utility: Mobile-Erkennung & Debounce
+const MOBILE_BP = 480; // Breakpoint in px
+const isMobile = () => window.innerWidth <= MOBILE_BP;
+
+function debounce(fn, ms = 200) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
+// ------------------------------------------------------------
+// 4. API – Open-Meteo (stündlich Temperatur & rel. Feuchte)
 async function fetchHourly() {
   if (latitude === null || longitude === null)
     throw new Error("location-missing");
 
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relative_humidity_2m&timezone=auto`;
-
   const res = await fetch(url);
   if (!res.ok) throw new Error("weather-fetch-failed");
 
@@ -28,7 +41,7 @@ async function fetchHourly() {
 }
 
 // ------------------------------------------------------------
-// 4. UI‑Updater
+// 5. UI-Updater "Aktuell draußen" + nächster Lüftungszeitpunkt
 async function updateWeatherNow() {
   const weatherNow = document.getElementById("weather-now");
   try {
@@ -48,19 +61,13 @@ async function updateWeatherNow() {
     const rhOut = data.hourly.relative_humidity_2m[idx];
     const ahOut = absFeuchte(tempOut, rhOut).toFixed(1);
 
-    weatherNow.textContent = `Aktuell draußen: ${tempOut} °C, ${rhOut}% rF → ${ahOut} g/m³`;
+    weatherNow.textContent = `Aktuell draußen: ${tempOut} °C, ${rhOut}% rF → ${ahOut} g/m³`;
 
     // Innenwerte (falls vorhanden)
     const tempInVal = parseFloat(document.getElementById("temp_in").value);
     const rhInVal = parseFloat(document.getElementById("rh_in").value);
-
-    let ahIn = NaN;
     if (!isNaN(tempInVal) && !isNaN(rhInVal)) {
-      ahIn = absFeuchte(tempInVal, rhInVal);
-    }
-
-    // Nächsten guten Lüftungszeitpunkt suchen, falls Innenwerte gesetzt
-    if (!isNaN(ahIn)) {
+      const ahIn = absFeuchte(tempInVal, rhInVal);
       const goodIdx = data.hourly.temperature_2m.findIndex((_, i) => {
         const ah = absFeuchte(
           data.hourly.temperature_2m[i],
@@ -73,7 +80,7 @@ async function updateWeatherNow() {
         const ts = `${t.toLocaleDateString("de-DE", {
           day: "2-digit",
           month: "2-digit",
-        })} ${t.toLocaleTimeString("de-DE", {
+        })} ${t.toLocaleTimeString("de-DE", {
           hour: "2-digit",
           minute: "2-digit",
         })}`;
@@ -83,16 +90,15 @@ async function updateWeatherNow() {
       }
     }
   } catch (e) {
-    if (e.message === "location-missing") {
-      weatherNow.textContent = "Bitte Standort angeben.";
-    } else {
-      weatherNow.textContent = "Fehler beim Abrufen der Wetterdaten.";
-    }
+    weatherNow.textContent =
+      e.message === "location-missing"
+        ? "Bitte Standort angeben."
+        : "Fehler beim Abrufen der Wetterdaten.";
   }
 }
 
 // ------------------------------------------------------------
-// 5. Chart zeichnen (responsive)
+// 6. Chart zeichnen — Mobile-optimierte Optionen
 async function drawChart() {
   if (forecastChart) forecastChart.destroy();
   const ctx = document.getElementById("forecastChart").getContext("2d");
@@ -111,7 +117,7 @@ async function drawChart() {
         `${h.toLocaleDateString("de-DE", {
           day: "2-digit",
           month: "2-digit",
-        })} ${h.toLocaleTimeString("de-DE", {
+        })} ${h.toLocaleTimeString("de-DE", {
           hour: "2-digit",
           minute: "2-digit",
         })}`
@@ -119,6 +125,11 @@ async function drawChart() {
   const temps = data.hourly.temperature_2m.slice(idx);
   const hums = data.hourly.relative_humidity_2m.slice(idx);
   const abs = temps.map((t, i) => absFeuchte(t, hums[i]));
+
+  const mobile = isMobile();
+  const maxXTicks = mobile ? 3 : 12;
+  const maxYTicks = mobile ? 4 : 10;
+  const fontSize = mobile ? 10 : 12;
 
   forecastChart = new Chart(ctx, {
     type: "line",
@@ -129,6 +140,7 @@ async function drawChart() {
           label: "Temperatur (°C)",
           data: temps,
           borderColor: "orange",
+          hidden: mobile,
           yAxisID: "y",
           tension: 0.3,
         },
@@ -136,6 +148,7 @@ async function drawChart() {
           label: "rel. Feuchte (%)",
           data: hums,
           borderColor: "blue",
+          hidden: mobile,
           yAxisID: "y1",
           tension: 0.3,
         },
@@ -152,29 +165,43 @@ async function drawChart() {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      stacked: false,
+      layout: { padding: mobile ? 5 : 15 },
       plugins: {
-        legend: { position: "top" },
-        title: { display: true, text: "Außenprognose (stündlich)" },
+        legend: { display: !mobile, position: mobile ? "bottom" : "top" },
+        title: { display: !mobile, text: "Außenprognose (stündlich)" },
       },
       scales: {
+        x: {
+          ticks: {
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: maxXTicks,
+            font: { size: fontSize },
+          },
+        },
         y: {
           type: "linear",
           position: "left",
-          title: { display: true, text: "Temperatur (°C)" },
+          title: mobile ? {} : { display: true, text: "Temperatur (°C)" },
+          ticks: { maxTicksLimit: maxYTicks, font: { size: fontSize } },
         },
         y1: {
           type: "linear",
           position: "right",
-          title: { display: true, text: "rel. Feuchte (%)" },
+          title: mobile ? {} : { display: true, text: "rel. Feuchte (%)" },
           grid: { drawOnChartArea: false },
+          ticks: { maxTicksLimit: maxYTicks, font: { size: fontSize } },
         },
         y2: {
           type: "linear",
           position: "right",
-          title: { display: true, text: "Abs. Feuchte (g/m³)" },
+          title: mobile ? {} : { display: true, text: "Abs. Feuchte (g/m³)" },
           grid: { drawOnChartArea: false },
-          ticks: { color: "green" },
+          ticks: {
+            color: "green",
+            maxTicksLimit: maxYTicks,
+            font: { size: fontSize },
+          },
           offset: true,
         },
       },
@@ -182,8 +209,16 @@ async function drawChart() {
   });
 }
 
+// Re-render Chart on viewport resize (debounced)
+window.addEventListener(
+  "resize",
+  debounce(() => {
+    if (forecastChart) drawChart();
+  }, 300)
+);
+
 // ------------------------------------------------------------
-// 6. User‑Interaktionen
+// 7. User-Aktionen
 async function checkLueften() {
   const tempIn = parseFloat(document.getElementById("temp_in").value);
   const rhIn = parseFloat(document.getElementById("rh_in").value);
@@ -196,7 +231,6 @@ async function checkLueften() {
 
   try {
     const data = lastHourly ?? (await fetchHourly());
-
     const now = new Date();
     const hours = data.hourly.time.map((t) => new Date(t));
     const idx = hours.findIndex(
@@ -209,7 +243,7 @@ async function checkLueften() {
     const ahIn = absFeuchte(tempIn, rhIn);
     const ahOut = absFeuchte(tempOut, rhOut);
 
-    let msg = `Innen: ${ahIn.toFixed(1)} g/m³\nAußen: ${ahOut.toFixed(1)} g/m³`;
+    let msg = `Innen: ${ahIn.toFixed(1)} g/m³\nAußen: ${ahOut.toFixed(1)} g/m³`;
     msg +=
       ahOut < ahIn - 1
         ? "\n\n✅ Jetzt ist ein guter Zeitpunkt zum Lüften!"
@@ -228,13 +262,13 @@ function useLocation() {
     (pos) => {
       latitude = pos.coords.latitude;
       longitude = pos.coords.longitude;
-      lastHourly = null; // Cache invalidieren
+      lastHourly = null;
       updateWeatherNow();
       drawChart();
     },
     () => {
       document.getElementById("weather-now").textContent =
-        "GPS‑Zugriff abgelehnt oder fehlgeschlagen.";
+        "GPS-Zugriff abgelehnt oder fehlgeschlagen.";
     }
   );
 }
