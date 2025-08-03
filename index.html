@@ -2,319 +2,54 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Luftcheck: Jetzt lüften?</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-      body {
-        font-family: sans-serif;
-        max-width: 800px;
-        margin: auto;
-        padding: 2em;
-        background: #f5f5f5;
-      }
-      input,
-      button,
-      select {
-        padding: 0.5em;
-        margin: 0.5em 0;
-        width: 100%;
-      }
-      .result {
-        margin-top: 1em;
-        padding: 1em;
-        background: white;
-        border-radius: 5px;
-        white-space: pre-line;
-      }
-      .current-values {
-        font-size: 0.9em;
-        color: #555;
-        margin-bottom: 1em;
-      }
-      canvas {
-        background: white;
-        border-radius: 5px;
-        margin-top: 2em;
-      }
-    </style>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <h1>Luftcheck</h1>
+    <main class="container">
+      <h1>Luftcheck</h1>
 
-    <p><strong>Standort wählen:</strong></p>
-    <input
-      type="text"
-      id="location_input"
-      placeholder="Ort eingeben oder GPS verwenden"
-    />
-    <button onclick="useLocation()">Standort ermitteln (GPS)</button>
-    <button onclick="resolveLocation()">Standort setzen</button>
+      <label for="location_input"><strong>Standort wählen:</strong></label>
+      <input
+        id="location_input"
+        type="text"
+        placeholder="Ort eingeben oder GPS verwenden"
+      />
+      <div class="btn-row">
+        <button type="button" onclick="useLocation()">
+          Standort ermitteln (GPS)
+        </button>
+        <button type="button" onclick="resolveLocation()">
+          Standort setzen
+        </button>
+      </div>
 
-    <div class="current-values" id="weather-now"></div>
+      <div id="weather-now" class="current-values"></div>
 
-    <p>
-      Gib deine <strong>Raumtemperatur</strong> und
-      <strong>relative Luftfeuchtigkeit</strong> ein:
-    </p>
-    <input type="number" id="temp_in" placeholder="Raumtemperatur (in °C)" />
-    <input type="number" id="rh_in" placeholder="Raumfeuchtigkeit (in %)" />
-    <button onclick="checkLueften()">Checken</button>
+      <p>
+        Gib deine <strong>Raumtemperatur</strong> und
+        <strong>relative Luftfeuchtigkeit</strong> ein:
+      </p>
+      <div class="inputs-inline">
+        <input id="temp_in" type="number" placeholder="Raumtemperatur (°C)" />
+        <input id="rh_in" type="number" placeholder="Raumfeuchtigkeit (%)" />
+        <button type="button" onclick="checkLueften()">Checken</button>
+      </div>
 
-    <div class="result" id="output"></div>
-    <canvas id="forecastChart" width="700" height="300"></canvas>
+      <div id="output" class="result"></div>
 
-    <script>
-      function absFeuchte(temp, rh) {
-        const svp = 6.112 * Math.exp((17.62 * temp) / (243.12 + temp));
-        return (216.7 * (rh / 100) * svp) / (temp + 273.15);
-      }
+      <!-- Canvas in flex-Container einbetten; Chart.js füllt Breite selbst -->
+      <div class="chart-wrapper">
+        <canvas
+          id="forecastChart"
+          aria-label="Außenprognose (stündlich)"
+        ></canvas>
+      </div>
+    </main>
 
-      let forecastChart;
-      let latitude = null;
-      let longitude = null;
-
-      async function fetchWeatherAndShow() {
-        if (latitude === null || longitude === null) {
-          document.getElementById("weather-now").textContent =
-            "Bitte Standort angeben.";
-          return;
-        }
-
-        const weatherNow = document.getElementById("weather-now");
-        try {
-          const res = await fetch(
-            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relative_humidity_2m&timezone=auto`
-          );
-          const data = await res.json();
-
-          const now = new Date();
-          const hours = data.hourly.time.map((t) => new Date(t));
-          const temps = data.hourly.temperature_2m;
-          const hums = data.hourly.relative_humidity_2m;
-
-          // Finde Index der aktuellen Stunde
-          const currentHourIndex = hours.findIndex(
-            (h) =>
-              h.getHours() === now.getHours() &&
-              h.getDate() === now.getDate() &&
-              h.getMonth() === now.getMonth() &&
-              h.getFullYear() === now.getFullYear()
-          );
-
-          // Schneide Daten ab aktuelle Stunde
-          const hoursSlice = hours.slice(currentHourIndex);
-          const tempsSlice = temps.slice(currentHourIndex);
-          const humsSlice = hums.slice(currentHourIndex);
-
-          // Labels mit Datum und Uhrzeit, z.B. 22.07. 18:00
-          const labels = hoursSlice.map(
-            (h) =>
-              h.toLocaleDateString("de-DE", {
-                day: "2-digit",
-                month: "2-digit",
-              }) +
-              " " +
-              h.toLocaleTimeString("de-DE", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-          );
-
-          const tempOut = temps[currentHourIndex];
-          const rhOut = hums[currentHourIndex];
-          const ahOut = absFeuchte(tempOut, rhOut);
-
-          weatherNow.textContent = `Aktuell draußen: ${tempOut} °C, ${rhOut}% rF → ${ahOut.toFixed(
-            1
-          )} g/m³`;
-
-          const tempIn = parseFloat(document.getElementById("temp_in").value);
-          const rhIn = parseFloat(document.getElementById("rh_in").value);
-
-          let ahIn = 12.5;
-          if (!isNaN(tempIn) && !isNaN(rhIn)) {
-            ahIn = absFeuchte(tempIn, rhIn);
-          }
-
-          const goodHours = [];
-          for (let i = currentHourIndex; i < temps.length; i++) {
-            const ah = absFeuchte(temps[i], hums[i]);
-            if (ah < ahIn - 1) {
-              goodHours.push(i);
-            }
-          }
-
-          if (goodHours.length > 0) {
-            const first = hours[goodHours[0]];
-            const timeString =
-              first.toLocaleDateString("de-DE", {
-                day: "2-digit",
-                month: "2-digit",
-              }) +
-              " " +
-              first.toLocaleTimeString("de-DE", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-            weatherNow.textContent += `\nNächste gute Lüftungszeit: ${timeString}`;
-          } else {
-            weatherNow.textContent += `\nHeute voraussichtlich kein optimaler Lüftungszeitpunkt.`;
-          }
-
-          if (forecastChart) forecastChart.destroy();
-          const ctx = document.getElementById("forecastChart").getContext("2d");
-          forecastChart = new Chart(ctx, {
-            type: "line",
-            data: {
-              labels: labels,
-              datasets: [
-                {
-                  label: "Temperatur (°C)",
-                  data: tempsSlice,
-                  borderColor: "orange",
-                  yAxisID: "y",
-                  tension: 0.3,
-                },
-                {
-                  label: "rel. Feuchte (%)",
-                  data: humsSlice,
-                  borderColor: "blue",
-                  yAxisID: "y1",
-                  tension: 0.3,
-                },
-                {
-                  label: "Abs. Feuchte (g/m³)",
-                  data: tempsSlice.map((t, i) => absFeuchte(t, humsSlice[i])),
-                  borderColor: "green",
-                  yAxisID: "y2",
-                  tension: 0.3,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              interaction: {
-                mode: "index",
-                intersect: false,
-              },
-              stacked: false,
-              plugins: {
-                legend: { position: "top" },
-                title: { display: true, text: "Außenprognose (stündlich)" },
-              },
-              scales: {
-                y: {
-                  type: "linear",
-                  position: "left",
-                  title: { display: true, text: "Temperatur (°C)" },
-                },
-                y1: {
-                  type: "linear",
-                  position: "right",
-                  title: { display: true, text: "rel. Feuchte (%)" },
-                  grid: { drawOnChartArea: false },
-                },
-                y2: {
-                  type: "linear",
-                  position: "right",
-                  title: { display: true, text: "Abs. Feuchte (g/m³)" },
-                  grid: { drawOnChartArea: false },
-                  ticks: { color: "green" },
-                  offset: true,
-                },
-              },
-            },
-          });
-        } catch (e) {
-          weatherNow.textContent = "Fehler beim Abrufen der Wetterdaten.";
-        }
-      }
-
-      async function checkLueften() {
-        const tempIn = parseFloat(document.getElementById("temp_in").value);
-        const rhIn = parseFloat(document.getElementById("rh_in").value);
-        const output = document.getElementById("output");
-
-        if (isNaN(tempIn) || isNaN(rhIn)) {
-          output.textContent = "Bitte beide Werte korrekt eingeben.";
-          return;
-        }
-
-        const ahIn = absFeuchte(tempIn, rhIn);
-
-        try {
-          const res = await fetch(
-            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relative_humidity_2m&timezone=auto`
-          );
-          const data = await res.json();
-          const now = new Date();
-          const hours = data.hourly.time.map((t) => new Date(t));
-          const temps = data.hourly.temperature_2m;
-          const hums = data.hourly.relative_humidity_2m;
-
-          const currentHourIndex = hours.findIndex(
-            (h) =>
-              h.getHours() === now.getHours() && h.getDate() === now.getDate()
-          );
-          const tempOut = temps[currentHourIndex];
-          const rhOut = hums[currentHourIndex];
-          const ahOut = absFeuchte(tempOut, rhOut);
-
-          let message = `Innen: ${ahIn.toFixed(1)} g/m³\nAußen: ${ahOut.toFixed(
-            1
-          )} g/m³`;
-
-          if (ahOut < ahIn - 1) {
-            message += "\n\n✅ Jetzt ist ein guter Zeitpunkt zum Lüften!";
-          } else {
-            message += "\n\n❌ Lieber Fenster geschlossen lassen.";
-          }
-
-          output.textContent = message;
-          fetchWeatherAndShow();
-        } catch (e) {
-          output.textContent = "Fehler beim Abrufen der Wetterdaten.";
-        }
-      }
-
-      function useLocation() {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            latitude = pos.coords.latitude;
-            longitude = pos.coords.longitude;
-            fetchWeatherAndShow();
-          },
-          () => {
-            document.getElementById("weather-now").textContent =
-              "GPS-Zugriff abgelehnt oder fehlgeschlagen.";
-          }
-        );
-      }
-
-      async function resolveLocation() {
-        const query = document.getElementById("location_input").value.trim();
-        if (!query) return;
-
-        try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-              query
-            )}&format=json&limit=1`
-          );
-          const results = await res.json();
-          if (results.length > 0) {
-            latitude = parseFloat(results[0].lat);
-            longitude = parseFloat(results[0].lon);
-            fetchWeatherAndShow();
-          } else {
-            document.getElementById("weather-now").textContent =
-              "Ort nicht gefunden.";
-          }
-        } catch {
-          document.getElementById("weather-now").textContent =
-            "Fehler bei der Ortssuche.";
-        }
-      }
-    </script>
+    <!-- Dein bisheriger <script>-Block bleibt unverändert -->
+    <script src="app.js"></script>
   </body>
 </html>
